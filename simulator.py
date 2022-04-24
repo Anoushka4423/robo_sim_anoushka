@@ -41,17 +41,22 @@ robot_length = 0.2
 robot_radius = 0.05
 robot1 = dd.DifferentialDrive(robot_width, robot_length, robot_radius)
 robot2 = dd.DifferentialDrive(robot_width, robot_length, robot_radius)
-timestep = 0.02
+timestep = 0.033
 
 lidar_num_rays = 20
 lidar_max_dist = 0.5
 lidar_min_angle = -np.pi/2
 lidar_max_angle = np.pi/2
 
-wheel_noise_a1 = 0.01
+
+# Working with 0 noise right now. 
+# wheel_noise_a1 = 0.01
+wheel_noise_a1 = 0
+
 wheel_noise_a2 = 0
 wheel_noise_a3 = 0
-wheel_noise_a4 = 0.01
+# wheel_noise_a4 = 0.01
+wheel_noise_a4 = 0
 
 landmark_range_sigma = 0.05
 landmark_bearing_sigma = 0.01
