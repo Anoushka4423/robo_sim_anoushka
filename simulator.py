@@ -146,7 +146,7 @@ def producer():
     omega2 = 0
     count = 0
     while True:
-        #  Wait for next request from client
+        #  Get the newest message
         try:
             topic, message_str = sub_socket.recv_multipart(flags=zmq.NOBLOCK)
             queue_empty = False
@@ -176,28 +176,30 @@ def producer():
 
         if not robot1.collides(state, obstacles):
             state = res.y[:, -1]
+            collision_dict = {"collision":False}
         else:
-            pub_socket.send_multipart([b"collision", b"{}"])
+            collision_dict = {"collision":True}
             pass
+        collision_str = json.dumps(collision_dict).encode()
+        pub_socket.send_multipart([b"collision", collision_str])
 
         lines = lidar(state, obstacles)
         dists = [line.length for line in lines]
 
         marks, mark_dists, mark_thetas = visible_landmarks(state, landmarks)
-        if len(marks) > 0:
-            # print([index[0] for index in marks])
-            marks_dict = {}
-            for index, dist, theta in zip(marks, mark_dists, mark_thetas):
-                mark = landmarks[index]
-                marks_dict[int(index)] = {}
-                marks_dict[int(index)]["dist"] = dist + \
-                    np.random.normal(0, landmark_range_sigma)
-                marks_dict[int(index)]["theta"] = theta + \
-                    np.random.normal(0, landmark_bearing_sigma)
+        marks_dict = {}
+        # print([index[0] for index in marks])
+        for index, dist, theta in zip(marks, mark_dists, mark_thetas):
+            mark = landmarks[index]
+            marks_dict[int(index)] = {}
+            marks_dict[int(index)]["dist"] = dist + \
+                np.random.normal(0, landmark_range_sigma)
+            marks_dict[int(index)]["theta"] = theta + \
+                np.random.normal(0, landmark_bearing_sigma)
 
             # print(marks_dict)
-            marks_str = json.dumps(marks_dict).encode()
-            pub_socket.send_multipart([b"landmarks", marks_str])
+        marks_str = json.dumps(marks_dict).encode()
+        pub_socket.send_multipart([b"landmarks", marks_str])
 
         # state_dict = {"x": state[0], "y": state[1], "theta": state[2]}
         # state_str = json.dumps(state_dict).encode()
@@ -212,6 +214,7 @@ def producer():
         yield state, lines
 
 
+# Draw the initial state with a zoomed-in and zoomed-out view
 state = [start[0], start[1], 0]
 patches1 = robot1.draw(ax1, state)
 for patch in patches1:
@@ -243,6 +246,9 @@ ax2.grid("on")
 ax2.set_xlim(bounds[0]-1, bounds[1]+1)
 ax2.set_ylim(bounds[0]-1, bounds[1]+1)
 
+# Start the animation. It pulls new data from the producer function and passes
+# it to the animate function to update the visuals
+
 
 def animate(data):
     state, lines = data
@@ -261,7 +267,7 @@ def animate(data):
             drawn_line.set_data(x, y)
         except NotImplementedError:
             print(line)
-    window_size = 3
+    window_size = 1
     ax1.set_xlim(state[0]-window_size, state[0]+window_size)
     ax1.set_ylim(state[1]-window_size, state[1]+window_size)
     return *patches1, *patches2, *drawn_lines1, *drawn_lines2
