@@ -12,6 +12,12 @@ import numpy as np
 import sympy as sym
 import random
 import matplotlib.pyplot as plt
+import copy 
+import io
+import pstats
+from pstats import SortKey
+import cProfile
+
 
 def add_wheel_noise(omega1, omega2):
     sigma1 = np.sqrt(wheel_noise_a1*omega1**2+wheel_noise_a2*omega2**2)
@@ -53,19 +59,7 @@ sub_socket.connect("tcp://localhost:5555")
 sub_socket.setsockopt(zmq.SUBSCRIBE, b"collision")
 sub_socket.setsockopt(zmq.SUBSCRIBE, b"lidar")
 sub_socket.setsockopt(zmq.SUBSCRIBE, b"landmarks")
-
-# When the simulation starts, wherever the robot is at, 
-# is (0, 0, 0) for (x, y, theta). 
-# x = 0
-# y = 0
-# theta = 0
-
-
-
-
-
-# def ekf_landmark_h(x_k1, y_k1, robo_x, robo_y, tobo_theta):
-#     dist = np.sqrt()
+sub_socket.setsockopt(zmq.SUBSCRIBE, b"state")
 
 
 
@@ -79,75 +73,6 @@ count = 0
 
 omega1 = 0.1
 omega2 = 0.1
-
-# lidar_queue = []
-# landmark_queue = []
-# collision_queue = []
-
-# # Local Landmark Queue
-# recoginized_landmarks = dict()
-
-
-# while True:
-#     lidar_vals = 0
-#     landmark_vals = 0
-#     collision_vals = 0
-
-#     for i in range(3):
-#         topic, message = sub_socket.recv_multipart()
-        
-#         if(topic == b'lidar'):
-#             lidar_dict = message
-            
-#         elif(topic == b'landmarks'):
-#             landmark_dict = message
-            
-#         elif(topic == b'collision'):
-#             collision_dict = message
-
-
-#     for key in landmark_dict:
-#         # do something
-#         i = 10
-
-
-    
-#     # After handling the landmarks we update the wheel speeds
-#     lidar_message_dict = json.loads(lidar_dict.decode())
-#     lidar_dists = lidar_message_dict["distances"]
-        
-        
-#     if (len(lidar_dists) > 0):
-#         max_dist = 0.5
-#         angle_interval = np.pi/19
-        
-#         #use the latest information
-#         message = lidar_queue[-1]
-        
-    
-#         min_index = np.argmin(lidar_dists)
-#         min_angle = -np.pi/2 + min_index*angle_interval
-#         min_dist = lidar_dists[min_index]
-
-#         if min_dist < 0.8*max_dist:
-#             k = -10*np.copysign(np.exp(-np.abs(min_angle)), min_angle)
-#             if not np.isfinite(k):
-#                 k = 0
-#         else:
-#             k = 0
-
-#         omega1 = (s+w*k)/(2*r)
-#         omega2 = (s-w*k)/(2*r)
-
-#         wheel_speeds = {"omega1": omega1, "omega2": omega2}
-#         pub_socket.send_multipart(
-#             [b"wheel_speeds", json.dumps(wheel_speeds).encode()])
-    
-
-
-
-
-
 
 
 
@@ -209,16 +134,11 @@ def move_robots_time_steps(particles, wheel_speeds):
             # p[1] = y_update
             # p[2] = theta_update
             particles[i] = [x_update, y_update, theta_update, landmarks]
-    
+            particle_past.append([x_update, y_update, theta_update])
     wheel_speeds = []
     
 
     return wheel_speeds, particles
-
-# particles = [[0.4, 0.5, 1.7, []], [0.1, 0.6, 2.0, []], [0.9, 2.5, 0.6, []]]
-# wheel_speeds = [(0.6, 0.9), (0.1, 0.3)]
-
-# move_robots_time_steps(particles, wheel_speeds)
 
 
 
@@ -312,9 +232,11 @@ def ekf(particle, index_of_landmark, dist, angle, Q, V):
 
 
 
-def particles_badness(particles, landmark_measurements):
+def particles_badness_deprecated(particles, landmark_measurements):
     
     badness = []
+    badness_dist = []
+    badness_angle = []
     # print("In particles badness: particles", particles)
     # print("landmark_measurements:", landmark_measurements)
     
@@ -337,14 +259,18 @@ def particles_badness(particles, landmark_measurements):
             particle_angle_error += abs(particle_landmark_angle - true_landmark_angle)
             
             # print("error:", particle_dist_error+particle_angle_error)
+        badness_dist.append(particle_dist_error)
+        badness_angle.append(particle_angle_error)
         
         badness.append(particle_dist_error+particle_angle_error)
     
-    # print("in Particles badness: ", badness)
+    print("in Particles badness: ", badness)
+    print("Badness_dist", badness_dist)
+    print("Badness_angle", badness_angle)
     return badness
 
 
-def get_priot_list(badness, size=100):
+def get_priot_list_deprecated(badness, size=100):
     badness_index = np.argsort(badness)[::-1][:len(badness)]
     badness = np.sort(badness)[::-1]   
     if(len(badness) == 0):
@@ -363,6 +289,7 @@ def get_priot_list(badness, size=100):
             if(r < A_new[index]):
                 semi_final.append(index)
                 break
+    
     
     final = badness_index[semi_final]
     return final
@@ -383,20 +310,22 @@ def get_priot_list(badness, size=100):
 # print(get_priot_list(badness, 20))
 
 
-def particles_resample(particles, landmark_measurements):
+def particles_resample_deprecated(particles, landmark_measurements):
     # if(len(particles) == 0):
     #     print("PARTICLES WAS EMPTY!")
     #     print("Landmark_measurements:", landmark_measurements)
-    badness = particles_badness(particles, landmark_measurements)
-    priot_index = get_priot_list(badness, 100)
+    badness = particles_badness_deprecated(particles, landmark_measurements)
+    # print("badness:", badness)
+    
+    priot_index = get_priot_list_deprecated(badness, 10)
     
     if(len(priot_index) == 0):
         print("Particles:", particles)
         print("Landmark_measurements:", landmark_measurements)
         print("Badness:", badness)
         
-    print("In particles resample, badness:", badness)
-    print("priot_index:", priot_index, len(priot_index))
+    # print("In particles resample, badness:", badness)
+    # print("priot_index:", priot_index, len(priot_index))
     new_particles = []
     # priortized_list = badness[priot_index]
     for i in range(len(particles)):
@@ -404,6 +333,67 @@ def particles_resample(particles, landmark_measurements):
         new_particles.append(particles[index])
     
     return new_particles
+
+
+
+def return_goodness(particles, landmark_measurements):
+    goodness = []
+    
+    for particle in particles:
+        robo_x, robo_y, robo_theta, landmarks = particle
+        particle_dist_error = 0
+        particle_angle_error = 0
+        for key in landmark_measurements:
+            key_exist, index = key_in_landmarks_1_particle(particle, key)
+            particle_landmark = landmarks[index]
+            particle_landmark_dist, particle_landmark_angle = landmark_position_to_dist_angle(particle_landmark[1], 
+                                                               particle_landmark[2], robo_x, robo_y, robo_theta)
+            true_landmark_dist = landmark_measurements[key]['dist']
+            true_landmark_angle = landmark_measurements[key]['theta']
+            
+            particle_dist_error += abs(particle_landmark_dist - true_landmark_dist)
+            particle_angle_error += abs(particle_landmark_angle - true_landmark_angle)
+            
+        badness = particle_dist_error+particle_angle_error
+        goodness.append(1/badness)
+    
+    return goodness
+
+
+def priority_index(goodness):
+    goodness_sum = np.sum(goodness)
+        
+    priot_list = []
+    # running_sum = 0
+    
+    for good in goodness:
+        # running_sum  += good/goodness_sum
+        priot_list.append(good/goodness_sum)
+        
+    return priot_list
+
+# goodness = [42.87136997,77.42917811,  30.82083669, 29.74582979, 21.67092421, 18.72368001, 17.75926573, 16.06789043, 10.06745649, 9.599174951]
+# priot_list = priority_index(goodness)
+# print("Priot_list", priot_list)
+
+
+
+
+def particles_resample(particles, landmark_measurements, num_particles=10):
+    new_particles = []
+    goodness = return_goodness(particles, landmark_measurements)
+    priot_list = priority_index(goodness)
+    
+    # print("Priot_list", priot_list)
+    particle_indexes = np.arange(0, 10)
+    new_index = np.random.choice(particle_indexes, num_particles, p=priot_list)
+
+    for i in new_index:
+        new_particles.append(particles[i])
+        
+    return new_particles
+
+
 
 def get_landmarks_x_and_y(landmarks):
     # print("landmarks:",landmarks)
@@ -453,14 +443,44 @@ def plot_all_particles(particles):
         plt.plot([robo_x], [robo_y], '.')
     
     
+def plot_particles_past(particle_past, true_state_past, all_particles_all_landmarks, num_of_particles = 10):
+    # print(len(all_particles_all_landmarks))
+    # print(len(true_state_past))
+    first_true_state = true_state_past[0]
+    for i in range(0, len(particle_past), 10):
+        
+        for j in range(10):
+            part_past = particle_past[i+j]
+            
+            # print("should plot:", part_past[0], ",", part_past[1])
+            plt.plot([part_past[0]], [part_past[1]], '.', color='blue')
+            plt.plot([part_past[0]+first_true_state[0]], [part_past[1]+first_true_state[1]], '.')
+        
+        state_past = true_state_past[int(i/10)]
+        plt.plot([state_past[0]], [state_past[1]], '.', color='black')
+        
+        
+    for i in range(10):
+        landmarks = all_particles_all_landmarks[i]
+        l_xs, l_ys = get_landmarks_x_and_y(landmarks)
+        plt.plot(l_xs, l_ys, '*', color='green')
+    
+
+
+true_state_past = []
+all_particles_all_landmarks = []
 
 
 # A particle is [robo_x, robo_y, robo_theta, [landmark_key, landmark_x, landmark_y, [[p1, p2],[p3, p4]]]]
+num_of_particles = 10
 particles = []
-for i in range(10):
+particle_past = []
+for i in range(num_of_particles):
     p = [0.0, 0.0, 0.0, []]
+    # particle_past.append([p[0],p[1],p[2]])
     particles.append(p)
-    
+    all_particles_all_landmarks.append([])
+
 
 #counter 
 counter = 0
@@ -471,14 +491,20 @@ lidar_wheel_speeds= []
 
 # Landmark Noise
 Q =  sym.Matrix([[landmark_range_sigma**2, 0], [0, landmark_bearing_sigma**2]])
+# Q =  sym.Matrix([[0, 0], [0, 0]])
+
 # Process Noise -- Will have to tune, somehow
 V = sym.Matrix([[0, 0],[0,0]])
-plt.figure()
-plt.xlim(-5, 4)
-plt.ylim(-5, 3)
 
+topic, message = sub_socket.recv_multipart()
+while(topic != b'state'):
+    topic, message = sub_socket.recv_multipart()
+    
+
+pr = cProfile.Profile()
+pr.enable()
 # Infinite loop
-while(True):
+while(counter < 50):
     # print("STARTING of the LOOP!!")
     counter += 1
     landmark_handled = False
@@ -487,9 +513,10 @@ while(True):
     lidar_mess = []
     landmark_mess = []
     collision_mess = []
+    state_mess = []
     
 # Get the message from ZMQ
-    for i in range(3):
+    for i in range(4):
         topic, message = sub_socket.recv_multipart()
         
         if(topic == b'lidar'):
@@ -502,13 +529,17 @@ while(True):
         elif(topic == b'collision'):
             collision_mess = json.loads(message.decode())
             
+        elif(topic == b'state'):
+            state_mess = json.loads(message.decode())
+            true_state_past.append([state_mess['x'], state_mess['y']])
+            
     # Handle the landmarks if any:
     for landmark_key in landmark_mess:
         # print("landmark_mess:", landmark_mess)
         landmark_handled = True
         # print("Landmark handles was made True")
         
-        lidar_wheel_speeds, particles = move_robots_time_steps(particles, lidar_wheel_speeds)
+        # lidar_wheel_speeds, particles = move_robots_time_steps(particles, lidar_wheel_speeds)
         
         landmark_dist = landmark_mess[landmark_key]['dist']
         landmark_angle = landmark_mess[landmark_key]['theta']
@@ -536,10 +567,8 @@ while(True):
                 new_landmark = [landmark_key, float(xkk[0]), float(xkk[1]), new_P]
                 all_landmarks[index_of_landmark] = new_landmark
                 particles[p_i][3] = all_landmarks
-        
-    # for p_i, ptcl in enumerate(particles):
-    #     print(ptcl[3][0])
             
+            all_particles_all_landmarks[p_i] = all_landmarks
             
             
     # Then, use this new found location of the landmark to resample the 50 robots. 
@@ -549,6 +578,8 @@ while(True):
             # print("particles is empty!")
         particles = particles_resample(particles, landmark_mess)
         landmark_handled = False
+        
+    
 
     # After handling the landmarks, we can now handle the lidar information. 
     # Update the wheel speeds and send them to the simulator. 
@@ -584,17 +615,27 @@ while(True):
             [b"wheel_speeds", json.dumps(wheel_speeds).encode()])
         
         lidar_wheel_speeds.append((omega1, omega2))
+        lidar_wheel_speeds, particles = move_robots_time_steps(particles, lidar_wheel_speeds)
 
-    
-    
-    # print_current_map(particles)
-    if(counter% 1== 0):
-        # plt.cla()
-        plt.xlim(-5, 4)
-        plt.ylim(-5, 3)
-        plot_all_particles(particles)
-        plt.draw()
-        plt.pause(0.1)
+
+pr.disable()
+s = io.StringIO()
+sortby = SortKey.CUMULATIVE
+ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+ps.print_stats()
+print(s.getvalue())
+
+# print(particle_past)  
+# print(true_state_past)  
+plt.figure()
+plt.xlim(-5, 4)
+plt.ylim(-5, 3)
+
+plot_particles_past(particle_past, true_state_past, all_particles_all_landmarks)
+# plt.draw()
+# plt.pause(0.1)
+
+plt.show()
     
     
     
