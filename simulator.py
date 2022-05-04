@@ -81,9 +81,11 @@ landmarks = np.array(landmarks)
 
 fig, [ax1, ax2] = plt.subplots(1, 2)
 
+obs_patches1 = []
 for obs in obstacles:
     patch = dc.PolygonPatch(obs)
     ax1.add_patch(patch)
+    obs_patches1.append(patch)
     patch = dc.PolygonPatch(obs)
     ax2.add_patch(patch)
 
@@ -132,7 +134,10 @@ def add_wheel_noise(omega1, omega2):
 def visible_landmarks(state, landmarks):
     landmark_diffs = landmarks-np.array([state[0], state[1]])
     landmark_dists = np.linalg.norm(landmark_diffs, axis=1)
-    landmark_thetas = np.arctan2(landmark_diffs[:, 1], landmark_diffs[:, 0])
+    landmark_thetas = np.arctan2(
+        landmark_diffs[:, 1], landmark_diffs[:, 0]) - state[2]
+
+    landmark_thetas = np.remainder(landmark_thetas + np.pi, 2*np.pi) - np.pi
 
     vis = np.where((landmark_dists < 0.5) & (
         landmark_thetas > -np.pi/2) & (landmark_thetas < np.pi/2))
@@ -145,6 +150,7 @@ def producer():
     omega1 = 0
     omega2 = 0
     count = 0
+    t = 0
     while True:
         #  Get the newest message
         try:
@@ -173,12 +179,13 @@ def producer():
 
         res = solve_ivp(robot1.deriv, [0, timestep],
                         state, args=[[noisy_omega1, noisy_omega2], 0])
+        t += timestep
 
         if not robot1.collides(state, obstacles):
             state = res.y[:, -1]
-            collision_dict = {"collision":False}
+            collision_dict = {"timestamp": t, "collision": False}
         else:
-            collision_dict = {"collision":True}
+            collision_dict = {"timestamp": t, "collision": True}
             pass
         collision_str = json.dumps(collision_dict).encode()
         pub_socket.send_multipart([b"collision", collision_str])
@@ -187,8 +194,9 @@ def producer():
         dists = [line.length for line in lines]
 
         marks, mark_dists, mark_thetas = visible_landmarks(state, landmarks)
-        marks_dict = {}
+        message_dict = {"timestamp": t}
         # print([index[0] for index in marks])
+        marks_dict = {}
         for index, dist, theta in zip(marks, mark_dists, mark_thetas):
             mark = landmarks[index]
             marks_dict[int(index)] = {}
@@ -198,16 +206,18 @@ def producer():
                 np.random.normal(0, landmark_bearing_sigma)
 
             # print(marks_dict)
-        marks_str = json.dumps(marks_dict).encode()
+        message_dict["landmarks"] = marks_dict
+        marks_str = json.dumps(message_dict).encode()
         pub_socket.send_multipart([b"landmarks", marks_str])
 
-        # state_dict = {"x": state[0], "y": state[1], "theta": state[2]}
-        # state_str = json.dumps(state_dict).encode()
-        # pub_socket.send_multipart([b"state", state_str])
-
-        lidar_dict = {"distances": dists}
+        lidar_dict = {"timestamp": t, "distances": dists}
         lidar_str = json.dumps(lidar_dict).encode()
         pub_socket.send_multipart([b"lidar", lidar_str])
+
+        state_dict = {"timestamp": t,
+                      "x": state[0], "y": state[1], "theta": state[2]}
+        state_str = json.dumps(state_dict).encode()
+        pub_socket.send_multipart([b"state", state_str])
 
         # print(count)
         count += 1
@@ -239,7 +249,8 @@ for line in lidar(state, obstacles):
 
 
 ax1.axis("equal")
-ax1.grid("on")
+ax1.xaxis.set_ticklabels([])
+ax1.yaxis.set_ticklabels([])
 
 ax2.axis("equal")
 ax2.grid("on")
@@ -270,10 +281,11 @@ def animate(data):
     window_size = 1
     ax1.set_xlim(state[0]-window_size, state[0]+window_size)
     ax1.set_ylim(state[1]-window_size, state[1]+window_size)
-    return *patches1, *patches2, *drawn_lines1, *drawn_lines2
+    return *obs_patches1, *patches1, *patches2, *drawn_lines1, *drawn_lines2
 
 
+time_scale = 20  # Make this number bigger to slow down time
 animation = anim.FuncAnimation(
-    fig, animate, producer, interval=timestep*1000)
+    fig, animate, producer, interval=timestep*1000*time_scale, blit=True)
 
 plt.show(block=True)
