@@ -9,7 +9,6 @@ import zmq
 import time
 import json
 import numpy as np
-import sympy as sym
 import random
 import matplotlib.pyplot as plt
 import copy 
@@ -147,7 +146,7 @@ def h_map_position_to_measurement(landmark_x, landmark_y, robo_x, robo_y, robo_t
     angle = np.arctan2((landmark_y - robo_y), (landmark_x - robo_x)) - robo_theta
     angle = np.remainder(angle+np.pi, 2*np.pi)-np.pi
     
-    z = sym.Matrix([[dist],[angle]])
+    z = np.array([[dist],[angle]])
     return z
 
 def landmark_position_to_dist_angle(landmark_x, landmark_y, robo_x, robo_y, robo_theta):
@@ -175,7 +174,7 @@ def H_jocobian_of_h_wrt_landmark_position(xk, yk, x, y):
     partial_theta_partial_xk = (y - yk)/theta_deno
     partial_theta_partial_yk = (xk - x)/theta_deno
     
-    H = sym.Matrix([[partial_dist_partial_xk, partial_dist_partial_yk], 
+    H = np.array([[partial_dist_partial_xk, partial_dist_partial_yk], 
                    [partial_theta_partial_xk, partial_theta_partial_yk]])
     
     return H
@@ -192,6 +191,7 @@ def key_in_landmarks_1_particle(particle, key):
 def ekf(particle, index_of_landmark, dist, angle, Q, V):
     
     robo_x, robo_y, robo_theta, all_landmarks = particle
+    
     landmark_key_part, landmark_x, landmark_y, P = all_landmarks[index_of_landmark]
 
     xk1_k1 = landmark_x
@@ -200,7 +200,7 @@ def ekf(particle, index_of_landmark, dist, angle, Q, V):
     # print("In ekf:", "P", P)
     # print("landmark_x, landmark_y", landmark_x, landmark_y)
     
-    Pk1_k1 = sym.Matrix([[P[0][0], P[0][1]], [P[1][0], P[1][1]]])
+    Pk1_k1 = np.array([[P[0][0], P[0][1]], [P[1][0], P[1][1]]])
     
     #Process Update
     xk_k1 = xk1_k1
@@ -209,22 +209,27 @@ def ekf(particle, index_of_landmark, dist, angle, Q, V):
     Pk_k1 = Pk1_k1 + V
     
     # Posteriori Step's helper definition
-    xyk_k1 = sym.Matrix([[xk_k1],[yk_k1]])
+    xyk_k1 = np.array([[xk_k1],[yk_k1]])
+    
     h = h_map_position_to_measurement(xk_k1, yk_k1, robo_x, robo_y, robo_theta)
     # print("h", h, type(h))
     Hk = H_jocobian_of_h_wrt_landmark_position(xk_k1,yk_k1, robo_x, robo_y)
-    zk = sym.Matrix([[dist],[angle]])
+    zk = np.array([[dist],[angle]])
     # print("zk", zk)
     
     # kalman Step
     yk = zk - h
-    Sk = Hk * Pk_k1 * Hk.T + Q
+    Sk = Hk @ Pk_k1 @ Hk.T  + Q
     
     
-    Kk = Pk_k1*Hk.T*Sk.inv()
-    xkk = xyk_k1 + Kk*yk
+    Kk = Pk_k1 @ Hk.T @ np.linalg.inv(Sk)
+    
+    
+    # print("xyk_k1:", xyk_k1)
+    # print("kk:", Kk)
+    xkk = xyk_k1 + Kk @ yk
     I = np.identity(2)
-    Pkk = (I - Kk*Hk)*Pk_k1
+    Pkk = (I - Kk @ Hk) @ Pk_k1
     # print("xkk", xkk)
     # print("Pkk", Pkk)
     
@@ -264,9 +269,9 @@ def particles_badness_deprecated(particles, landmark_measurements):
         
         badness.append(particle_dist_error+particle_angle_error)
     
-    print("in Particles badness: ", badness)
-    print("Badness_dist", badness_dist)
-    print("Badness_angle", badness_angle)
+    # print("in Particles badness: ", badness)
+    # print("Badness_dist", badness_dist)
+    # print("Badness_angle", badness_angle)
     return badness
 
 
@@ -385,7 +390,7 @@ def particles_resample(particles, landmark_measurements, num_particles=10):
     priot_list = priority_index(goodness)
     
     # print("Priot_list", priot_list)
-    particle_indexes = np.arange(0, 10)
+    particle_indexes = np.arange(0, num_particles)
     new_index = np.random.choice(particle_indexes, num_particles, p=priot_list)
 
     for i in new_index:
@@ -447,20 +452,20 @@ def plot_particles_past(particle_past, true_state_past, all_particles_all_landma
     # print(len(all_particles_all_landmarks))
     # print(len(true_state_past))
     first_true_state = true_state_past[0]
-    for i in range(0, len(particle_past), 10):
+    for i in range(0, len(particle_past), num_of_particles):
         
-        for j in range(10):
+        for j in range(num_of_particles):
             part_past = particle_past[i+j]
             
             # print("should plot:", part_past[0], ",", part_past[1])
             plt.plot([part_past[0]], [part_past[1]], '.', color='blue')
             plt.plot([part_past[0]+first_true_state[0]], [part_past[1]+first_true_state[1]], '.')
         
-        state_past = true_state_past[int(i/10)]
+        state_past = true_state_past[int(i/num_of_particles)]
         plt.plot([state_past[0]], [state_past[1]], '.', color='black')
         
         
-    for i in range(10):
+    for i in range(num_of_particles):
         landmarks = all_particles_all_landmarks[i]
         l_xs, l_ys = get_landmarks_x_and_y(landmarks)
         plt.plot(l_xs, l_ys, '*', color='green')
@@ -472,7 +477,7 @@ all_particles_all_landmarks = []
 
 
 # A particle is [robo_x, robo_y, robo_theta, [landmark_key, landmark_x, landmark_y, [[p1, p2],[p3, p4]]]]
-num_of_particles = 10
+num_of_particles = 50
 particles = []
 particle_past = []
 for i in range(num_of_particles):
@@ -490,11 +495,11 @@ lidar_wheel_speeds= []
 
 
 # Landmark Noise
-Q =  sym.Matrix([[landmark_range_sigma**2, 0], [0, landmark_bearing_sigma**2]])
+Q =  np.array([[landmark_range_sigma**2, 0], [0, landmark_bearing_sigma**2]])
 # Q =  sym.Matrix([[0, 0], [0, 0]])
 
 # Process Noise -- Will have to tune, somehow
-V = sym.Matrix([[0, 0],[0,0]])
+V = np.array([[0, 0],[0,0]])
 
 topic, message = sub_socket.recv_multipart()
 while(topic != b'state'):
@@ -504,7 +509,7 @@ while(topic != b'state'):
 pr = cProfile.Profile()
 pr.enable()
 # Infinite loop
-while(counter < 50):
+while(counter < 1000):
     # print("STARTING of the LOOP!!")
     counter += 1
     landmark_handled = False
@@ -558,13 +563,8 @@ while(counter < 50):
                 
             else:
                 xkk, Pkk = ekf(ptcls, index_of_landmark, landmark_dist, landmark_angle, Q, V)
-                P1 = float(Pkk[0])
-                P2 = float(Pkk[1])
-                P3 = float(Pkk[2])
-                P4 = float(Pkk[3])
                 
-                new_P = [[P1, P2], [P3, P4]]
-                new_landmark = [landmark_key, float(xkk[0]), float(xkk[1]), new_P]
+                new_landmark = [landmark_key, xkk[0][0], xkk[1][0], Pkk]
                 all_landmarks[index_of_landmark] = new_landmark
                 particles[p_i][3] = all_landmarks
             
@@ -576,7 +576,7 @@ while(counter < 50):
     if(landmark_handled):
         # if(len(particles) == 0):
             # print("particles is empty!")
-        particles = particles_resample(particles, landmark_mess)
+        particles = particles_resample(particles, landmark_mess, num_of_particles)
         landmark_handled = False
         
     
@@ -631,7 +631,7 @@ plt.figure()
 plt.xlim(-5, 4)
 plt.ylim(-5, 3)
 
-plot_particles_past(particle_past, true_state_past, all_particles_all_landmarks)
+plot_particles_past(particle_past, true_state_past, all_particles_all_landmarks, num_of_particles)
 # plt.draw()
 # plt.pause(0.1)
 
