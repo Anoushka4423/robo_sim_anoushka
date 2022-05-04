@@ -478,7 +478,7 @@ plt.xlim(-5, 4)
 plt.ylim(-5, 3)
 
 # Infinite loop
-while(counter < 1000):
+while(True):
     # print("STARTING of the LOOP!!")
     counter += 1
     landmark_handled = False
